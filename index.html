@@ -1,0 +1,579 @@
+<html><head><base href="https://cubefields.websim.ai" />
+<title>CubeFields - Relaxing 3D Idle Game</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+    body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+    }
+    #gameContainer {
+        width: 100%;
+        height: 100%;
+    }
+    #scoreDisplay {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 24px;
+        color: white;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    #layerDisplay {
+        position: absolute;
+        top: 50px;
+        left: 10px;
+        font-size: 18px;
+        color: white;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    .control-button {
+        position: absolute;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background-color: rgba(255,255,255,0.7);
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    #zoomIn {
+        top: 20px;
+    }
+    #zoomOut {
+        top: 80px;
+    }
+    #resetCamera {
+        top: 140px;
+        font-size: 18px;
+    }
+    #toggleMode {
+        top: 200px;
+        font-size: 18px;
+    }
+    #bonusDisplay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 36px;
+        color: gold;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        opacity: 0;
+        transition: opacity 0.5s;
+        display: none;
+    }
+    #menuButton {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        font-size: 18px;
+        padding: 10px 20px;
+        background-color: rgba(255,255,255,0.7);
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    #menu {
+        position: absolute;
+        bottom: 80px;
+        left: 20px;
+        background-color: rgba(0,0,0,0.8);
+        padding: 20px;
+        border-radius: 10px;
+        display: none;
+    }
+    #menu button {
+        display: block;
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 10px;
+        background-color: rgba(255,255,255,0.7);
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    #helpText {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0,0,0,0.8);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        display: none;
+    }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.7.1/gsap.min.js"></script>
+</head>
+<body>
+<div id="gameContainer"></div>
+<div id="scoreDisplay">Score: 0</div>
+<div id="layerDisplay">Layer: 30/30</div>
+<button id="zoomIn" class="control-button">+</button>
+<button id="zoomOut" class="control-button">-</button>
+<button id="resetCamera" class="control-button">Reset</button>
+<button id="toggleMode" class="control-button">Rotate</button>
+<div id="bonusDisplay"></div>
+<button id="menuButton">Menu</button>
+<div id="menu">
+    <button id="saveButton">Save</button>
+    <button id="loadButton">Load</button>
+    <button id="resetButton">Reset</button>
+    <button id="helpButton">Help</button>
+</div>
+<div id="helpText">
+    Right-click or use two fingers to rotate/move the cube.<br>
+    Click, hold, or swipe to remove cubes on the visible side.<br>
+    Use mouse wheel to zoom in/out.
+</div>
+
+<script>
+let scene, camera, renderer, raycaster, mouse;
+let cubeField = {};
+let score = 0;
+let currentLayer = 30;
+let isRightMouseDown = false;
+let isLeftMouseDown = false;
+let visibleCubes = new Set();
+const ZOOM_THRESHOLD = 10;
+const INITIAL_CAMERA_POSITION = new THREE.Vector3(0, 0, 60);
+let gameOver = false;
+let isCameraRotateMode = true;
+let audioContext;
+let colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff];
+
+function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('gameContainer').appendChild(renderer.domElement);
+
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
+    resetCameraPosition();
+
+    createCubeField();
+    
+    window.addEventListener('resize', onWindowResize, false);
+    renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+    renderer.domElement.addEventListener('mouseup', onMouseUp, false);
+    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+    renderer.domElement.addEventListener('wheel', onMouseWheel, false);
+    renderer.domElement.addEventListener('touchstart', onTouchStart, false);
+    renderer.domElement.addEventListener('touchmove', onTouchMove, false);
+    renderer.domElement.addEventListener('touchend', onTouchEnd, false);
+    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault(), false);
+    
+    document.getElementById('zoomIn').addEventListener('click', zoomIn);
+    document.getElementById('zoomOut').addEventListener('click', zoomOut);
+    document.getElementById('resetCamera').addEventListener('click', resetCameraPosition);
+    document.getElementById('toggleMode').addEventListener('click', toggleCameraMode);
+    document.getElementById('menuButton').addEventListener('click', toggleMenu);
+    document.getElementById('saveButton').addEventListener('click', saveGame);
+    document.getElementById('loadButton').addEventListener('click', loadGame);
+    document.getElementById('resetButton').addEventListener('click', resetGame);
+    document.getElementById('helpButton').addEventListener('click', showHelp);
+    
+    initAudio();
+    
+    animate();
+}
+
+function initAudio() {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playSound(frequency) {
+    const oscillator = audioContext.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+
+    const gainNode = audioContext.createGain();
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContext.currentTime + 0.1);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.1);
+}
+
+function createCubeField() {
+    for (let layer = 30; layer > 0; layer--) {
+        cubeField[layer] = [];
+        const size = layer * 2 / 30;
+        const geometry = new THREE.BoxGeometry(size, size, size);
+        const material = new THREE.MeshBasicMaterial({ color: colors[layer % colors.length] });
+        
+        for (let x = 0; x < layer; x++) {
+            for (let y = 0; y < layer; y++) {
+                for (let z = 0; z < layer; z++) {
+                    if (x === 0 || x === layer - 1 || y === 0 || y === layer - 1 || z === 0 || z === layer - 1) {
+                        const cube = new THREE.Mesh(geometry, material);
+                        cube.position.set(
+                            (x - (layer - 1) / 2) * size,
+                            (y - (layer - 1) / 2) * size,
+                            (z - (layer - 1) / 2) * size
+                        );
+                        cube.userData.layer = layer;
+                        scene.add(cube);
+                        cubeField[layer].push(cube);
+                    }
+                }
+            }
+        }
+    }
+    updateVisibleLayers();
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function onMouseDown(event) {
+    if (gameOver) return;
+    if (event.button === 2) {
+        isRightMouseDown = true;
+    } else {
+        isLeftMouseDown = true;
+        removeCubes(event);
+    }
+}
+
+function onMouseUp(event) {
+    if (gameOver) return;
+    if (event.button === 2) {
+        isRightMouseDown = false;
+    } else {
+        isLeftMouseDown = false;
+    }
+}
+
+function onMouseMove(event) {
+    if (gameOver) return;
+    if (isRightMouseDown) {
+        if (isCameraRotateMode) {
+            rotateCubeField(event.movementX, event.movementY);
+        } else {
+            moveCameraInPlane(event.movementX, event.movementY);
+        }
+    } else if (isLeftMouseDown) {
+        removeCubes(event);
+    }
+}
+
+function onMouseWheel(event) {
+    if (gameOver) return;
+    event.preventDefault();
+    const zoomSpeed = 0.1;
+    const delta = -Math.sign(event.deltaY) * zoomSpeed;
+    zoomCamera(delta);
+}
+
+function onTouchStart(event) {
+    if (gameOver) return;
+    if (event.touches.length === 2) {
+        isRightMouseDown = true;
+    } else {
+        isLeftMouseDown = true;
+        removeCubes(event.touches[0]);
+    }
+}
+
+function onTouchMove(event) {
+    if (gameOver) return;
+    if (isRightMouseDown && event.touches.length === 2) {
+        const dx = event.touches[0].pageX - event.touches[1].pageX;
+        const dy = event.touches[0].pageY - event.touches[1].pageY;
+        if (isCameraRotateMode) {
+            rotateCubeField(dx, dy);
+        } else {
+            moveCameraInPlane(dx * 0.1, dy * 0.1);
+        }
+    } else if (isLeftMouseDown) {
+        removeCubes(event.touches[0]);
+    }
+}
+
+function onTouchEnd(event) {
+    if (gameOver) return;
+    if (event.touches.length < 2) {
+        isRightMouseDown = false;
+    }
+    if (event.touches.length === 0) {
+        isLeftMouseDown = false;
+    }
+}
+
+function rotateCubeField(dx, dy) {
+    scene.rotation.y += dx * 0.01;
+    scene.rotation.x += dy * 0.01;
+}
+
+function moveCameraInPlane(dx, dy) {
+    camera.position.x -= dx * 0.01;
+    camera.position.y += dy * 0.01;
+}
+
+function removeCubes(event) {
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    
+    const intersects = raycaster.intersectObjects(scene.children);
+    
+    if (intersects.length > 0) {
+        const cube = intersects[0].object;
+        if (cube.userData.layer === currentLayer) {
+            scene.remove(cube);
+            cubeField[currentLayer] = cubeField[currentLayer].filter(c => c !== cube);
+            score++;
+            updateScore();
+            
+            visibleCubes.delete(cube);
+            
+            const baseFrequency = 200;
+            const frequency = baseFrequency + (currentLayer * 20);
+            playSound(frequency);
+            
+            if (visibleCubes.size === 0) {
+                awardSideClearedBonus();
+            }
+            
+            if (cubeField[currentLayer].length === 0) {
+                unlockNextLayer();
+            }
+        }
+    }
+}
+
+function awardSideClearedBonus() {
+    const bonus = currentLayer * 10;
+    score += bonus;
+    updateScore();
+    
+    const bonusDisplay = document.getElementById('bonusDisplay');
+    bonusDisplay.textContent = `Side Cleared! +${bonus} points`;
+    bonusDisplay.style.display = 'block';
+    bonusDisplay.style.opacity = 1;
+    
+    setTimeout(() => {
+        bonusDisplay.style.opacity = 0;
+        setTimeout(() => {
+            bonusDisplay.style.display = 'none';
+        }, 500);
+    }, 2000);
+}
+
+function unlockNextLayer() {
+    currentLayer--;
+    updateLayerDisplay();
+    updateVisibleLayers();
+    if (currentLayer === 0) {
+        endGame();
+    }
+}
+
+function endGame() {
+    gameOver = true;
+    alert("Congratulations! You've completed the game!");
+}
+
+function updateScore() {
+    document.getElementById('scoreDisplay').innerText = `Score: ${score}`;
+}
+
+function updateLayerDisplay() {
+    document.getElementById('layerDisplay').innerText = `Layer: ${currentLayer}/30`;
+}
+
+function zoomIn() {
+    zoomCamera(0.1);
+}
+
+function zoomOut() {
+    zoomCamera(-0.1);
+}
+
+function zoomCamera(delta) {
+    const minZoom = Math.max(5, currentLayer * 2 / 30 + 1);
+    const maxZoom = 90;
+    const newZoom = camera.position.z - delta * camera.position.z;
+    if (newZoom >= minZoom && newZoom <= maxZoom) {
+        camera.position.z = newZoom;
+    }
+}
+
+function resetCameraPosition() {
+    camera.position.copy(INITIAL_CAMERA_POSITION);
+    scene.rotation.set(0, 0, 0);
+}
+
+function toggleCameraMode() {
+    isCameraRotateMode = !isCameraRotateMode;
+    document.getElementById('toggleMode').textContent = isCamera
+RotateMode ? 'Rotate' : 'Move';
+}
+
+function updateVisibleLayers() {
+    for (let layer = 30; layer > 0; layer--) {
+        if (cubeField[layer]) {
+            cubeField[layer].forEach(cube => {
+                cube.visible = (layer === currentLayer || layer === currentLayer - 1);
+            });
+        }
+    }
+}
+
+function updateVisibleCubes() {
+    if (gameOver || !cubeField[currentLayer]) return;
+    
+    visibleCubes.clear();
+    const frustum = new THREE.Frustum();
+    frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    
+    cubeField[currentLayer].forEach(cube => {
+        if (frustum.intersectsObject(cube)) {
+            visibleCubes.add(cube);
+        }
+    });
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    if (!gameOver) {
+        updateVisibleCubes();
+    }
+    renderer.render(scene, camera);
+}
+
+function toggleMenu() {
+    const menu = document.getElementById('menu');
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+function saveGame() {
+    const gameState = {
+        score: score,
+        currentLayer: currentLayer,
+        cubeField: {},
+        colors: colors,
+        cameraPosition: camera.position.toArray(),
+        sceneRotation: [scene.rotation.x, scene.rotation.y, scene.rotation.z]
+    };
+
+    for (let layer in cubeField) {
+        gameState.cubeField[layer] = cubeField[layer].map(cube => ({
+            position: cube.position.toArray(),
+            layer: cube.userData.layer,
+            color: cube.material.color.getHex()
+        }));
+    }
+
+    const blob = new Blob([JSON.stringify(gameState)], {type: 'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cubefields_save.txt';
+    a.click();
+}
+
+function loadGame() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.txt';
+    input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const gameState = JSON.parse(e.target.result);
+                loadGameState(gameState);
+            } catch (error) {
+                console.error('Error loading game:', error);
+                alert('Error loading game. Please check the save file and try again.');
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+function loadGameState(gameState) {
+    score = gameState.score;
+    currentLayer = gameState.currentLayer;
+    colors = gameState.colors || colors;
+    updateScore();
+    updateLayerDisplay();
+
+    // Clear existing cube field
+    for (let layer in cubeField) {
+        cubeField[layer].forEach(cube => scene.remove(cube));
+    }
+    cubeField = {};
+
+    // Recreate cube field from saved state
+    for (let layer = 30; layer > 0; layer--) {
+        if (gameState.cubeField[layer]) {
+            cubeField[layer] = [];
+            const size = layer * 2 / 30;
+            const geometry = new THREE.BoxGeometry(size, size, size);
+            
+            gameState.cubeField[layer].forEach(cubeData => {
+                const material = new THREE.MeshBasicMaterial({ color: cubeData.color });
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.fromArray(cubeData.position);
+                cube.userData.layer = cubeData.layer;
+                scene.add(cube);
+                cubeField[layer].push(cube);
+            });
+        }
+    }
+
+    // Restore camera position and scene rotation
+    camera.position.fromArray(gameState.cameraPosition);
+    scene.rotation.set(...gameState.sceneRotation);
+
+    updateVisibleLayers();
+}
+
+function resetGame() {
+    score = 0;
+    currentLayer = 30;
+    updateScore();
+    updateLayerDisplay();
+
+    // Clear existing cube field
+    for (let layer in cubeField) {
+        cubeField[layer].forEach(cube => scene.remove(cube));
+    }
+
+    createCubeField();
+    resetCameraPosition();
+}
+
+function showHelp() {
+    const helpText = document.getElementById('helpText');
+    helpText.style.display = helpText.style.display === 'none' ? 'block' : 'none';
+}
+
+init();
+
+</script>
+</body></html>
