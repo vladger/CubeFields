@@ -7,4 +7,4 @@ Saves the player data into a TXT file, to continue later.
 Sound effects and colors, different for each layer.
 Known bugs:
 Camera dizziness (when camera rotated too much over 360 degrees, rotate direction may differ).
-Not too optimized for mobile, may be quite laggy.
+No optimization for mobile, may be quite laggy.
